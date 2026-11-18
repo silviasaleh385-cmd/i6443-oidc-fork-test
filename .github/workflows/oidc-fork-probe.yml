@@ -1,0 +1,28 @@
+name: OIDC Fork Probe
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Event context
+        run: |
+          echo "event=${{ github.event_name }} fork=${{ github.event.pull_request.head.repo.fork }} head_repo=${{ github.event.pull_request.head.repo.full_name }} base_repo=${{ github.repository }}"
+          echo "idtoken_url_set=${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          echo "idtoken_req_token_set=${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}"
+      - name: Request OIDC token
+        run: |
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then echo "NO_OIDC_ENV"; exit 1; fi
+          code=$(curl -s -o /tmp/tok.json -w '%{http_code}' -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com")
+          echo "HTTP=$code"
+          if [ "$code" = "200" ]; then
+            python3 -c "import json,base64;t=json.load(open('/tmp/tok.json'))['value'];p=t.split('.')[1];p+='='*(-len(p)%4);print('CLAIMS='+base64.urlsafe_b64decode(p).decode())"
+          else
+            head -c 500 /tmp/tok.json; echo; exit 1
+          fi
